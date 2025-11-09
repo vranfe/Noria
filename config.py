@@ -1,42 +1,88 @@
 """
 config.py
 ----------------------------------------
-Archivo de configuración general del proyecto "Control de la Noria 🎡".
-Contiene las variables globales de conexión MQTT y API de ChatGPT.
+Versión orientada a objetos del archivo de configuración
+para el proyecto "Control de la Noria 🎡".
 ----------------------------------------
 """
 
 import os
 
 
-#  CONFIGURACIÓN MQTT
+# ============================================================
+# Clase: MQTTConfig
+# ============================================================
+class MQTTConfig:
+    """Configuración del cliente MQTT y sus tópicos."""
 
-# --- Broker MQTT ---
-MQTT_BROKER = os.getenv("MQTT_BROKER", "broker.hivemq.com")  # Broker público por defecto
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))              # Puerto estándar sin TLS (8883 si usas SSL)
-MQTT_USER = ""                      # Usuario (si tu broker requiere autenticación)
-MQTT_PASSWORD = ""              # Contraseña (idem)
+    def __init__(self):
+        # Broker
+        self.BROKER = os.getenv("MQTT_BROKER", "broker.hivemq.com")
+        self.PORT = int(os.getenv("MQTT_PORT", "1883"))
+        self.USER = os.getenv("MQTT_USER", "")
+        self.PASSWORD = os.getenv("MQTT_PASSWORD", "")
 
-# --- Tópicos base ---
-TOPIC_BASE = "noria"
-TOPIC_CONTROL = f"{TOPIC_BASE}/control"   # Ejemplo: noria/control/motor
-TOPIC_ESTADO = f"{TOPIC_BASE}/estado"     # Ejemplo: noria/estado/velocidad
+        # Tópicos
+        self.TOPIC_BASE = "noria"
+        self.TOPIC_CONTROL = f"{self.TOPIC_BASE}/control"
+        self.TOPIC_ESTADO = f"{self.TOPIC_BASE}/estado"
 
-# --- Otras configuraciones ---
-USE_TLS = os.getenv("MQTT_USE_TLS", "false").lower() in ("1", "true", "yes")
-QOS = 1  # Nivel de calidad de servicio para MQTT (0, 1 o 2)
+        # Parámetros adicionales
+        self.USE_TLS = os.getenv("MQTT_USE_TLS", "false").lower() in ("1", "true", "yes")
+        self.QOS = int(os.getenv("MQTT_QOS", "1"))
+
+    def resumen(self):
+        """Devuelve un resumen legible de la configuración actual."""
+        return {
+            "Broker": self.BROKER,
+            "Puerto": self.PORT,
+            "TLS": self.USE_TLS,
+            "QOS": self.QOS,
+            "Tópico control": self.TOPIC_CONTROL,
+            "Tópico estado": self.TOPIC_ESTADO,
+        }
+
+
+# ============================================================
+# Clase: OpenAIConfig
+# ============================================================
+class OpenAIConfig:
+    """Configuración para el uso de la API de ChatGPT (OpenAI)."""
+
+    def __init__(self):
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+        self.MODEL = os.getenv("CHATGPT_MODEL", "gpt-3.5-turbo")
+        self.TEMPERATURE = float(os.getenv("CHATGPT_TEMPERATURE", "0.8"))
+
+    def resumen(self):
+        """Devuelve un resumen legible de la configuración de OpenAI."""
+        return {
+            "Modelo": self.MODEL,
+            "Temperatura": self.TEMPERATURE,
+            "API_KEY definida": bool(self.OPENAI_API_KEY),
+        }
+
+
+# ============================================================
+# Clase: AppConfig (contenedora general)
+# ============================================================
+class AppConfig:
+    """Clase principal que agrupa todas las configuraciones del proyecto."""
+
+    def __init__(self):
+        self.mqtt = MQTTConfig()
+        self.openai = OpenAIConfig()
+
+    def resumen(self):
+        """Muestra ambas configuraciones de manera resumida."""
+        return {
+            "MQTT": self.mqtt.resumen(),
+            "OpenAI": self.openai.resumen()
+        }
 
 
 
-#  CONFIGURACIÓN DE LA API DE CHATGPT (OpenAI)
 
-
-# Clave de API: puedes definirla como variable de entorno o colocarla directamente aquí.
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-# Si deseas usar otra API o modelo distinto, cambia estos valores:
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "gpt-3.5-turbo")
-CHATGPT_TEMPERATURE = float(os.getenv("CHATGPT_TEMPERATURE", "0.8"))
 
 
 
