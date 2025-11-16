@@ -1,10 +1,9 @@
 # interfaz.py
 """
 Interfaz gráfica para la Noria (MQTT + ESP32).
-- Botones superiores centrados (mismo estilo visual).
-- Slider Velocidad + Slider Volumen (debounce).
-- Mensajes reducidos: sólo se imprime cuando el usuario inicia una acción.
-- Manejo de errores IA: revierte estado si falla.
+- Botones apilados a la izquierda (Motor, Luces, Música, Servo).
+- Sliders, Chatbot, Colores y Salir a la derecha.
+- SOLUCIÓN DEFINITIVA PARA TAMAÑO DE BOTONES
 """
 
 import tkinter as tk
@@ -26,6 +25,7 @@ TOPIC_STEPPER = "esp32/stepper_delay"
 TOPIC_SONG = "esp32/play_song"
 TOPIC_VOLUME = "esp32/buzzer_volume"
 TOPIC_CHATBOT = "esp32/chatbot_command"
+TOPIC_SERVO = "esp32/servo_open"
 TOPIC_ERROR = "esp32/error"
 TOPIC_STATUS = "esp32/status"
 
@@ -54,11 +54,13 @@ class InterfazNoria:
         self.estado_motor = tk.BooleanVar(value=False)
         self.estado_luces = tk.BooleanVar(value=False)
         self.estado_musica = tk.BooleanVar(value=False)
+        self.estado_servo = tk.BooleanVar(value=False)
 
         # Traces para mantener UI sincrónica
         self.estado_motor.trace_add("write", lambda *a: self._trace_update("motor"))
         self.estado_luces.trace_add("write", lambda *a: self._trace_update("luces"))
         self.estado_musica.trace_add("write", lambda *a: self._trace_update("musica"))
+        self.estado_servo.trace_add("write", lambda *a: self._trace_update("servo"))
 
         # Bienvenida
         self.frame_bienvenida = tk.Frame(self.root, bg="#FFE5B4")
@@ -68,14 +70,13 @@ class InterfazNoria:
         # Panel se crea al entrar
         self.panel = None
 
-    # ---------------- Config ventana & colores ----------------
     def _configurar_ventana(self):
         self.root.title("Control de la Noria 🎡")
-        self.root.geometry("900x650")
-        self.root.minsize(700, 500)
+        self.root.geometry("1000x650")
+        self.root.minsize(900, 550)
         self.root.resizable(True, True)
         self.root.configure(bg="#FFE5B4")
-        self.fuente = ("Comic Sans MS", 13, "bold")
+        self.fuente = ("Comic Sans MS", 12, "bold")
 
     def _definir_colores(self):
         self.COLOR_BASE_APAGADO = "#FFA726"
@@ -83,11 +84,9 @@ class InterfazNoria:
         self.COLOR_TEXTO_APAGADO = "#BF360C"
         self.COLOR_TEXTO_ENCENDIDO = "#E65100"
 
-    # ---------------- MQTT setup ----------------
     def _setup_mqtt(self):
         try:
             self.mqtt_client = mqtt.Client()
-            # usuario/clave opcional
             if getattr(config.mqtt, "USER", ""):
                 self.mqtt_client.username_pw_set(config.mqtt.USER, config.mqtt.PASSWORD)
             self.mqtt_client.on_connect = self._on_mqtt_connect
@@ -127,15 +126,11 @@ class InterfazNoria:
         try:
             topic = msg.topic
             payload = msg.payload.decode(errors="replace")
-            # NO imprimimos cada mensaje para evitar spam
             self.root.after(0, lambda: self.actualizar_estado(topic, payload))
         except Exception as e:
             print("⚠️ Error en on_message:", e)
 
     def _mqtt_publish(self, topic, payload):
-        """
-        Publica y registra en consola (solo cuando acción proviene del usuario).
-        """
         try:
             if self.mqtt_client is None:
                 print("⚠️ MQTT no inicializado — publicación cancelada.")
@@ -150,14 +145,12 @@ class InterfazNoria:
                 else:
                     payload = json.dumps(payload)
 
-            # Mensaje claro en consola cuando el usuario publica algo
             print(f"📤 PUBLICAR -> {topic}: {payload}")
             self.mqtt_client.publish(topic, str(payload))
             print("   ✔ Enviado")
         except Exception as e:
             print("❌ Error al publicar MQTT:", e)
 
-    # ---------------- Bienvenida ----------------
     def _crear_bienvenida(self):
         tk.Label(
             self.frame_bienvenida,
@@ -185,7 +178,6 @@ class InterfazNoria:
         self.frame_bienvenida.destroy()
         self._crear_panel_control()
 
-    # ---------------- Panel principal ----------------
     def _crear_panel_control(self):
         self.panel = tk.Frame(self.root, bg="#FFE5B4")
         self.panel.pack(expand=True, fill="both")
@@ -195,65 +187,258 @@ class InterfazNoria:
             font=("Comic Sans MS", 20, "bold"), bg="#FFE5B4", fg="#E65100"
         ).pack(pady=12)
 
-        # iconos
+        # Frame principal para dividir en izquierda y derecha
+        main_frame = tk.Frame(self.panel, bg="#FFE5B4")
+        main_frame.pack(expand=True, fill="both", padx=20, pady=10)
+
+        # FRAME IZQUIERDO - Botones apilados
+        frame_izquierdo = tk.Frame(main_frame, bg="#FFE5B4", width=300)
+        frame_izquierdo.pack(side="left", fill="y", padx=(0, 20))
+        frame_izquierdo.pack_propagate(False)
+
+        # FRAME DERECHO - Sliders, chatbot, salir
+        frame_derecho = tk.Frame(main_frame, bg="#FFE5B4")
+        frame_derecho.pack(side="left", expand=True, fill="both")
+
+        # Cargar iconos
+        self._cargar_iconos()
+
+        # Título para la sección de controles
+        tk.Label(frame_izquierdo, text="Controles Principales", 
+                font=("Comic Sans MS", 16, "bold"), bg="#FFE5B4", fg="#E65100").pack(pady=(0, 15))
+
+        # SOLUCIÓN DEFINITIVA: Crear botones con Frame de tamaño fijo
+        self._crear_botones_izquierda(frame_izquierdo)
+        self._crear_controles_derecha(frame_derecho)
+
+    def _cargar_iconos(self):
+        """Cargar todos los iconos necesarios"""
         self.icons = {}
         try:
-            self.icons["motor"] = ImageTk.PhotoImage(Image.open("assets/motor.png").resize((35, 35)))
-            self.icons["luces"] = ImageTk.PhotoImage(Image.open("assets/luces.png").resize((35, 35)))
-            self.icons["musica"] = ImageTk.PhotoImage(Image.open("assets/musica.png").resize((35, 35)))
-            self.icons["salir"] = ImageTk.PhotoImage(Image.open("assets/salir.png").resize((28, 28)))
-        except Exception:
-            pass
+            icon_size = (28, 28)  # Tamaño uniforme para todos los iconos
+            self.icons["motor"] = ImageTk.PhotoImage(Image.open("assets/motor.png").resize(icon_size))
+            self.icons["luces"] = ImageTk.PhotoImage(Image.open("assets/luces.png").resize(icon_size))
+            self.icons["musica"] = ImageTk.PhotoImage(Image.open("assets/musica.png").resize(icon_size))
+            self.icons["servo"] = ImageTk.PhotoImage(Image.open("assets/puerta.png").resize(icon_size))
+            self.icons["salir"] = ImageTk.PhotoImage(Image.open("assets/salir.png").resize(icon_size))
+        except Exception as e:
+            print(f"⚠️ Error cargando iconos: {e}")
 
-        # TOP: fila de botones centrada (nuevo contenedor)
-        top_btns_frame = tk.Frame(self.panel, bg="#FFE5B4")
-        top_btns_frame.pack(pady=8)
-        self.top_btns_frame = top_btns_frame  # referencia para BotonControl
+    def _crear_botones_izquierda(self, parent):
+        """SOLUCIÓN DEFINITIVA: Crear botones con tamaño fijo usando Frames"""
+        # Tamaño fijo para todos los botones
+        BOTON_ANCHO = 250
+        BOTON_ALTO = 50
+        
+        # Lista de botones a crear
+        botones_config = [
+            ("Motor", "motor", self.estado_motor),
+            ("Luces", "luces", self.estado_luces),
+            ("Música", "musica", self.estado_musica),
+            ("Servo", "servo", self.estado_servo)
+        ]
+        
+        for texto, tipo, variable in botones_config:
+            # Frame contenedor con tamaño fijo
+            frame_boton = tk.Frame(parent, bg="#FFE5B4", width=BOTON_ANCHO, height=BOTON_ALTO)
+            frame_boton.pack(pady=8)
+            frame_boton.pack_propagate(False)  # ¡IMPORTANTE! Mantener tamaño fijo
+            
+            # Botón que llena todo el frame
+            icon = self.icons.get(tipo)
+            btn = tk.Button(
+                frame_boton, 
+                text=texto, 
+                image=icon, 
+                compound="left",
+                bg=self.COLOR_BASE_APAGADO, 
+                fg="white",
+                font=self.fuente,
+                relief="flat", 
+                bd=0, 
+                activebackground=self.COLOR_BASE_APAGADO,
+                command=lambda t=tipo, v=variable: self._toggle_boton(t, v)
+            )
+            btn.pack(fill="both", expand=True, padx=2, pady=2)
+            
+            # Frame para la etiqueta de estado (a la derecha del botón)
+            frame_estado = tk.Frame(parent, bg="#FFE5B4", width=80, height=BOTON_ALTO)
+            frame_estado.pack_propagate(False)
+            frame_estado.pack(pady=8)
+            
+            # Etiqueta de estado
+            if tipo == "servo":
+                estado_inicial = "Cerrada" if not variable.get() else "Abierta"
+            else:
+                estado_inicial = "Apagado" if not variable.get() else "Encendido"
+                
+            label_estado = tk.Label(
+                frame_estado, 
+                text=estado_inicial, 
+                font=("Comic Sans MS", 10),
+                bg="#FFE5B4", 
+                fg=self.COLOR_TEXTO_APAGADO,
+                anchor="w"
+            )
+            label_estado.pack(fill="both", expand=True)
+            
+            # Guardar referencia para actualizaciones
+            if not hasattr(self, 'botones_ui'):
+                self.botones_ui = {}
+            self.botones_ui[tipo] = (btn, label_estado, variable)
+            
+            # Configurar trace para actualizaciones
+            variable.trace_add("write", lambda *args, t=tipo: self._actualizar_ui_boton(t))
 
-        # botones (ahora se crean dentro del frame superior para alinearlos centrados)
-        self.boton_motor = self.BotonControl(self, "Iniciar Noria", "motor", self.estado_motor, parent_frame=top_btns_frame)
-        self.boton_luces = self.BotonControl(self, "Luces", "luces", self.estado_luces, parent_frame=top_btns_frame)
-        self.boton_musica = self.BotonControl(self, "Música", "musica", self.estado_musica, parent_frame=top_btns_frame)
-
+    def _crear_controles_derecha(self, parent):
+        """Crear controles del lado derecho"""
         # slider velocidad
+        velocidad_frame = tk.Frame(parent, bg="#FFE5B4")
+        velocidad_frame.pack(fill="x", pady=8)
+        
+        tk.Label(velocidad_frame, text="Velocidad de la Noria", font=self.fuente, bg="#FFE5B4", fg="#BF360C").pack(anchor="w")
         self.velocidad = tk.IntVar(value=50)
-        tk.Label(self.panel, text="Velocidad de la Noria", font=self.fuente, bg="#FFE5B4", fg="#BF360C").pack(pady=8)
-        self.scale = tk.Scale(self.panel, from_=0, to=100, orient="horizontal",
-                              variable=self.velocidad, command=self._slider_changed,
-                              length=480, bg="#FFE5B4", fg="#BF360C", troughcolor="#FFD180")
-        self.scale.pack()
-        self.label_vel = tk.Label(self.panel, text="Velocidad actual: 50%", font=self.fuente, bg="#FFE5B4", fg="#BF360C")
-        self.label_vel.pack(pady=6)
+        self.scale_vel = tk.Scale(velocidad_frame, from_=0, to=100, orient="horizontal",
+                                  variable=self.velocidad, command=self._slider_changed,
+                                  length=400, bg="#FFE5B4", fg="#BF360C", troughcolor="#FFD180")
+        self.scale_vel.pack(fill="x", pady=5)
+        self.label_vel = tk.Label(velocidad_frame, text="Velocidad actual: 50%", font=self.fuente, bg="#FFE5B4", fg="#BF360C")
+        self.label_vel.pack(anchor="w")
 
         # label colores
-        self.label_colores = tk.Label(self.panel, text="Colores: -", font=("Comic Sans MS", 11), bg="#FFE5B4")
-        self.label_colores.pack(pady=6)
+        self.label_colores = tk.Label(parent, text="Colores: -", font=("Comic Sans MS", 11), bg="#FFE5B4")
+        self.label_colores.pack(anchor="w", pady=6)
 
-        # ----- slider VOLUMEN (debajo de velocidad) -----
+        # slider VOLUMEN
+        volumen_frame = tk.Frame(parent, bg="#FFE5B4")
+        volumen_frame.pack(fill="x", pady=12)
+        
+        tk.Label(volumen_frame, text="Volumen de la Música", font=self.fuente, bg="#FFE5B4", fg="#BF360C").pack(anchor="w")
         self.volumen = tk.IntVar(value=50)
-        tk.Label(self.panel, text="Volumen de la Música", font=self.fuente, bg="#FFE5B4", fg="#BF360C").pack(pady=(12, 6))
-        self.scale_vol = tk.Scale(self.panel, from_=0, to=100, orient="horizontal",
+        self.scale_vol = tk.Scale(volumen_frame, from_=0, to=100, orient="horizontal",
                                   variable=self.volumen, command=self._vol_slider_changed,
-                                  length=480, bg="#FFE5B4", fg="#BF360C", troughcolor="#FFD180")
-        self.scale_vol.pack()
-        self.label_vol = tk.Label(self.panel, text="Volumen actual: 50%", font=self.fuente, bg="#FFE5B4", fg="#BF360C")
-        self.label_vol.pack(pady=6)
+                                  length=400, bg="#FFE5B4", fg="#BF360C", troughcolor="#FFD180")
+        self.scale_vol.pack(fill="x", pady=5)
+        self.label_vol = tk.Label(volumen_frame, text="Volumen actual: 50%", font=self.fuente, bg="#FFE5B4", fg="#BF360C")
+        self.label_vol.pack(anchor="w")
 
-        # chatbot entry (envío directo al TOPIC_CHATBOT)
-        chatbot_frame = tk.Frame(self.panel, bg="#FFE5B4")
-        chatbot_frame.pack(pady=8)
-        tk.Label(chatbot_frame, text="Comando Chatbot (envía al ESP):", bg="#FFE5B4").grid(row=0, column=0, sticky="w")
-        self.chat_entry = tk.Entry(chatbot_frame, width=50)
-        self.chat_entry.grid(row=1, column=0, padx=6, pady=6)
-        tk.Button(chatbot_frame, text="Enviar comando IA", command=self._send_chatbot_command).grid(row=1, column=1, padx=6)
+        # chatbot entry
+        chatbot_frame = tk.Frame(parent, bg="#FFE5B4")
+        chatbot_frame.pack(fill="x", pady=12)
+        
+        tk.Label(chatbot_frame, text="Comando Chatbot (envía al ESP):", bg="#FFE5B4").pack(anchor="w")
+        entry_frame = tk.Frame(chatbot_frame, bg="#FFE5B4")
+        entry_frame.pack(fill="x", pady=5)
+        
+        self.chat_entry = tk.Entry(entry_frame, width=40)
+        self.chat_entry.pack(side="left", padx=(0, 10))
+        tk.Button(entry_frame, text="Enviar comando IA", command=self._send_chatbot_command).pack(side="left")
 
-        # salir
+        # botón salir
         salir_img = self.icons.get("salir")
-        tk.Button(self.panel, text="Salir 🚪", command=self._shutdown, font=self.fuente,
+        tk.Button(parent, text="Salir 🚪", command=self._shutdown, font=self.fuente,
                   bg="#E64A19", fg="white", activebackground="#BF360C",
-                  relief="raised", width=12, height=2, image=salir_img, compound="left").pack(pady=12)
+                  relief="raised", width=15, height=1, image=salir_img, compound="left").pack(pady=20)
 
-    # ---------------- Slider velocidad (debounce) ----------------
+    def _toggle_boton(self, tipo, variable_estado):
+        """Maneja el clic en cualquier botón"""
+        nuevo_estado = not variable_estado.get()
+        variable_estado.set(nuevo_estado)
+        print(f"🖱 Botón '{tipo}' presionado — nuevo estado: {nuevo_estado}")
+
+        if tipo == "motor":
+            if nuevo_estado:
+                val = self.velocidad.get()
+                min_d, max_d = 2, 50
+                delay = int(max_d - (val / 100.0) * (max_d - min_d))
+                delay = max(1, delay)
+                print(f"⚙️ Publicando inicio motor (delay={delay})")
+                self._mqtt_publish(TOPIC_STEPPER, str(delay))
+            else:
+                print("🛑 Publicando detener motor")
+                self._mqtt_publish(TOPIC_STEPPER, "1000")
+
+        elif tipo == "luces":
+            if nuevo_estado:
+                print("✨ Solicitando colores IA...")
+                if tipo in self.botones_ui:
+                    self.botones_ui[tipo][1].config(text="Buscando...", fg=self.COLOR_TEXTO_APAGADO)
+                threading.Thread(target=self._worker_luces, daemon=True).start()
+            else:
+                print("🌑 Publicando apagar luces")
+                self._mqtt_publish(TOPIC_NEOPIXEL, "0,0,0")
+
+        elif tipo == "musica":
+            if nuevo_estado:
+                vol = self.volumen.get()
+                print(f"🎵 Publicando volumen actual {vol}% y luego iniciar música")
+                self._mqtt_publish(TOPIC_VOLUME, str(vol))
+                self._mqtt_publish(TOPIC_SONG, "start")
+            else:
+                print("🔇 Publicando silenciar (volume=0)")
+                self._mqtt_publish(TOPIC_VOLUME, "0")
+
+        elif tipo == "servo":
+            if nuevo_estado:
+                print("🚪 Publicando Abrir Puerta (Servo)")
+                self._mqtt_publish(TOPIC_SERVO, "open")
+            else:
+                print("🔒 Publicando Cerrar Puerta (Servo)")
+                self._mqtt_publish(TOPIC_SERVO, "close")
+
+    def _actualizar_ui_boton(self, tipo):
+        """Actualiza la UI del botón cuando cambia su estado"""
+        if tipo in self.botones_ui:
+            btn, label_estado, variable_estado = self.botones_ui[tipo]
+            estado = variable_estado.get()
+            
+            if estado:
+                btn.config(bg=self.COLOR_BASE_ENCENDIDO, activebackground=self.COLOR_BASE_ENCENDIDO)
+                if tipo == "servo":
+                    label_estado.config(text="Abierta", fg=self.COLOR_TEXTO_ENCENDIDO)
+                else:
+                    label_estado.config(text="Encendido", fg=self.COLOR_TEXTO_ENCENDIDO)
+            else:
+                btn.config(bg=self.COLOR_BASE_APAGADO, activebackground=self.COLOR_BASE_APAGADO)
+                if tipo == "servo":
+                    label_estado.config(text="Cerrada", fg=self.COLOR_TEXTO_APAGADO)
+                else:
+                    label_estado.config(text="Apagado", fg=self.COLOR_TEXTO_APAGADO)
+
+    def _worker_luces(self):
+        """Worker para manejar la solicitud de colores IA"""
+        try:
+            colors = color_gen.get_theme("Ilumina la noria con colores vibrantes", n_colors=3)
+
+            if not colors or not isinstance(colors, list) or len(colors) == 0:
+                raise ValueError("Respuesta inválida de API")
+
+            trip = colors[0]
+            if not (isinstance(trip, (list, tuple))) and len(trip) >= 3:
+                raise ValueError("Formato de color inesperado")
+
+            payload = f"{int(trip[0])},{int(trip[1])},{int(trip[2])}"
+            print(f"🌈 Colores generados -> {payload} (publicando...)")
+            self._mqtt_publish(TOPIC_NEOPIXEL, payload)
+
+            colores_str = ", ".join([f"{c[0]},{c[1]},{c[2]}" for c in colors])
+            self.root.after(0, lambda: self.label_colores.config(text=f"Colores: {colores_str}"))
+
+        except Exception as e:
+            print("❌ Error ChatGPT (luces):", e)
+            self.root.after(0, lambda: messagebox.showerror(
+                "Error al generar colores",
+                "No se pudo obtener colores desde la API.\nVerifica internet o la API Key."
+            ))
+            self.estado_luces.set(False)
+            self._mqtt_publish(TOPIC_NEOPIXEL, "255,0,0")
+            def apagar_aviso():
+                try:
+                    self._mqtt_publish(TOPIC_NEOPIXEL, "0,0,0")
+                except:
+                    pass
+            threading.Timer(2.0, apagar_aviso).start()
+
     def _slider_changed(self, _):
         val = self.velocidad.get()
         self.label_vel.config(text=f"Velocidad actual: {val}%")
@@ -270,7 +455,6 @@ class InterfazNoria:
             self._vel_last_sent = val
             print(f"🎚 Usuario cambió velocidad -> {val}% (publicando...)")
             self._mqtt_publish(TOPIC_DC_SPEED, str(val))
-            # map % a delay
             min_delay, max_delay = 2, 50
             delay = int(max_delay - (val / 100.0) * (max_delay - min_delay))
             delay = max(1, delay)
@@ -278,7 +462,6 @@ class InterfazNoria:
 
         self._vel_debounce_id = self.root.after(200, enviar)
 
-    # ---------------- Slider volumen (debounce) ----------------
     def _vol_slider_changed(self, _):
         val = self.volumen.get()
         self.label_vol.config(text=f"Volumen actual: {val}%")
@@ -294,127 +477,10 @@ class InterfazNoria:
                 return
             self._vol_last_sent = val
             print(f"🔊 Usuario cambió volumen -> {val}% (publicando...)")
-            # publicar TOPIC_VOLUME con porcentaje (ESP mapeará a duty)
             self._mqtt_publish(TOPIC_VOLUME, str(val))
 
         self._vol_debounce_id = self.root.after(200, enviar_vol)
 
-    # ---------------- BotonControl ----------------
-    class BotonControl:
-        def __init__(self, master_app, texto, tipo, variable_estado: tk.BooleanVar, parent_frame=None):
-            self.app = master_app
-            # si recibimos parent_frame lo usamos (para centrar los 3 botones superiores)
-            self.parent_frame = parent_frame if parent_frame is not None else master_app.panel
-            self.tipo = tipo
-            self.texto = texto
-            self.variable = variable_estado
-
-            # contenedor: si está en top buttons frame, alineamos en fila
-            self.frame = tk.Frame(self.parent_frame, bg="#FFE5B4")
-            # Decide packing según si parent es el top_btns_frame
-            if getattr(master_app, "top_btns_frame", None) is self.parent_frame:
-                self.frame.pack(side="left", padx=8)
-            else:
-                self.frame.pack(pady=8, anchor="w")
-
-            icon = master_app.icons.get(tipo)
-            self.btn = tk.Button(self.frame, text=texto, image=icon, compound="left",
-                                 bg=master_app.COLOR_BASE_APAGADO, fg="white",
-                                 font=master_app.fuente, width=180, height=48,
-                                 relief="flat", bd=0, activebackground=master_app.COLOR_BASE_APAGADO,
-                                 command=self._on_click)
-            self.btn.pack(side="left", padx=6)
-
-            self.label_estado = tk.Label(self.frame, text="Apagado", font=master_app.fuente,
-                                         bg="#FFE5B4", fg=master_app.COLOR_TEXTO_APAGADO, width=10, anchor="w")
-            self.label_estado.pack(side="left", padx=8)
-
-            # trace para sincronizar UI si la var cambia desde fuera
-            self.variable.trace_add("write", lambda *a: self._update_ui_state())
-            self._update_ui_state()
-
-        def _update_ui_state(self):
-            estado = self.variable.get()
-            if estado:
-                self.btn.config(bg=self.app.COLOR_BASE_ENCENDIDO, activebackground=self.app.COLOR_BASE_ENCENDIDO)
-                self.label_estado.config(text="Encendido", fg=self.app.COLOR_TEXTO_ENCENDIDO)
-            else:
-                self.btn.config(bg=self.app.COLOR_BASE_APAGADO, activebackground=self.app.COLOR_BASE_APAGADO)
-                self.label_estado.config(text="Apagado", fg=self.app.COLOR_TEXTO_APAGADO)
-
-        def _on_click(self):
-            nuevo = not self.variable.get()
-            self.variable.set(nuevo)
-            print(f"🖱 Botón '{self.tipo}' presionado — nuevo estado: {nuevo}")
-
-            if self.tipo == "motor":
-                if nuevo:
-                    val = self.app.velocidad.get()
-                    min_d, max_d = 2, 50
-                    delay = int(max_d - (val / 100.0) * (max_d - min_d))
-                    delay = max(1, delay)
-                    print(f"⚙️ Publicando inicio motor (delay={delay})")
-                    self.app._mqtt_publish(TOPIC_STEPPER, str(delay))
-                else:
-                    print("🛑 Publicando detener motor")
-                    self.app._mqtt_publish(TOPIC_STEPPER, "1000")
-
-            elif self.tipo == "luces":
-                if nuevo:
-                    print("✨ Solicitando colores IA...")
-                    self.label_estado.config(text="Conectando...", fg=self.app.COLOR_TEXTO_APAGADO)
-                    threading.Thread(target=self._worker_luces, daemon=True).start()
-                else:
-                    print("🌑 Publicando apagar luces")
-                    self.app._mqtt_publish(TOPIC_NEOPIXEL, "0,0,0")
-
-            elif self.tipo == "musica":
-                if nuevo:
-                    vol = self.app.volumen.get() if hasattr(self.app, "volumen") else 50
-                    print(f"🎵 Publicando volumen actual {vol}% y luego iniciar música")
-                    self.app._mqtt_publish(TOPIC_VOLUME, str(vol))
-                    self.app._mqtt_publish(TOPIC_SONG, "start")
-                else:
-                    print("🔇 Publicando silenciar (volume=0)")
-                    self.app._mqtt_publish(TOPIC_VOLUME, "0")
-
-        def _worker_luces(self):
-            try:
-                colors = color_gen.get_theme("Ilumina la noria con colores vibrantes", n_colors=3)
-
-                if not colors or not isinstance(colors, list) or len(colors) == 0:
-                    raise ValueError("Respuesta inválida de API")
-
-                trip = colors[0]
-                if not (isinstance(trip, (list, tuple)) and len(trip) >= 3):
-                    raise ValueError("Formato de color inesperado")
-
-                payload = f"{int(trip[0])},{int(trip[1])},{int(trip[2])}"
-                print(f"🌈 Colores generados -> {payload} (publicando...)")
-                self.app._mqtt_publish(TOPIC_NEOPIXEL, payload)
-
-                colores_str = ", ".join([f"{c[0]},{c[1]},{c[2]}" for c in colors])
-                self.app.root.after(0, lambda: self.app.label_colores.config(text=f"Colores: {colores_str}"))
-                # asegurar que UI indica Encendido (var ya True)
-                self.app.root.after(0, lambda: self.variable.set(True))
-
-            except Exception as e:
-                print("❌ Error ChatGPT (luces):", e)
-                self.app.root.after(0, lambda: messagebox.showerror(
-                    "Error al generar colores",
-                    "No se pudo obtener colores desde la API.\nVerifica internet o la API Key."
-                ))
-                # revertir estado y encender aviso rojo por 2s
-                self.variable.set(False)
-                self.app._mqtt_publish(TOPIC_NEOPIXEL, "255,0,0")
-                def apagar_aviso():
-                    try:
-                        self.app._mqtt_publish(TOPIC_NEOPIXEL, "0,0,0")
-                    except:
-                        pass
-                threading.Timer(2.0, apagar_aviso).start()
-
-    # ---------------- Actualizar estado desde ESP ----------------
     def actualizar_estado(self, topic, payload):
         try:
             if topic == TOPIC_ERROR or topic.endswith("/error"):
@@ -459,10 +525,13 @@ class InterfazNoria:
                 except Exception:
                     self.label_vol.config(text=f"Volumen actual: {payload}")
 
+            elif "servo" in topic or TOPIC_SERVO in topic:
+                state = payload.strip().lower() in ("open", "abrir", "true", "1")
+                self.estado_servo.set(state)
+
         except Exception as e:
             print("⚠️ Error actualizando estado:", e)
 
-    # ---------------- Enviar comando Chatbot desde entrada ----------------
     def _send_chatbot_command(self):
         text = self.chat_entry.get().strip()
         if not text:
@@ -472,7 +541,6 @@ class InterfazNoria:
         self._mqtt_publish(TOPIC_CHATBOT, text)
         self.chat_entry.delete(0, tk.END)
 
-    # ---------------- Trace (cuando cambia una BooleanVar) ----------------
     def _trace_update(self, which):
         if which == "motor":
             print(f"🔁 Estado UI motor -> {self.estado_motor.get()}")
@@ -480,11 +548,11 @@ class InterfazNoria:
             print(f"🔁 Estado UI luces -> {self.estado_luces.get()}")
         elif which == "musica":
             print(f"🔁 Estado UI musica -> {self.estado_musica.get()}")
+        elif which == "servo":
+            print(f"🔁 Estado UI servo -> {self.estado_servo.get()}")
 
-    # ---------------- Shutdown seguro ----------------
     def _shutdown(self):
         print("⏹ Cerrando aplicación — iniciando shutdown...")
-
         def do_shutdown():
             try:
                 if self.mqtt_client:
@@ -502,13 +570,10 @@ class InterfazNoria:
             except Exception as e:
                 print("⚠️ Error durante shutdown:", e)
             self.root.after(50, self.root.destroy)
-
         threading.Thread(target=do_shutdown, daemon=True).start()
 
 
-# ---------------- main ----------------
 if __name__ == "__main__":
     root = tk.Tk()
     app = InterfazNoria(root)
     root.mainloop()
-
