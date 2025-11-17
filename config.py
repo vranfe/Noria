@@ -1,38 +1,23 @@
-"""
-config.py
-----------------------------------------
-Versión orientada a objetos del archivo de configuración
-para el proyecto "Control de la Noria 🎡".
-----------------------------------------
-"""
-
 import os
-
 
 # ============================================================
 # Clase: MQTTConfig
 # ============================================================
 class MQTTConfig:
-    """Configuración del cliente MQTT y sus tópicos."""
-
     def __init__(self):
-        # Broker
-        self.BROKER = os.getenv("MQTT_BROKER", "broker.hivemq.com")
-        self.PORT = int(os.getenv("MQTT_PORT", "1883"))
-        self.USER = os.getenv("MQTT_USER", "")
-        self.PASSWORD = os.getenv("MQTT_PASSWORD", "")
+        self.BROKER = "broker.hivemq.com"
+        self.PORT = 1883
+        self.USER = ""
+        self.PASSWORD = ""
 
-        # Tópicos
         self.TOPIC_BASE = "noria"
         self.TOPIC_CONTROL = f"{self.TOPIC_BASE}/control"
         self.TOPIC_ESTADO = f"{self.TOPIC_BASE}/estado"
 
-        # Parámetros adicionales
-        self.USE_TLS = os.getenv("MQTT_USE_TLS", "false").lower() in ("1", "true", "yes")
-        self.QOS = int(os.getenv("MQTT_QOS", "1"))
+        self.USE_TLS = False
+        self.QOS = 1
 
     def resumen(self):
-        """Devuelve un resumen legible de la configuración actual."""
         return {
             "Broker": self.BROKER,
             "Puerto": self.PORT,
@@ -44,41 +29,44 @@ class MQTTConfig:
 
 
 # ============================================================
-# Clase: OpenAIConfig
+# Clase: GeminiConfig
 # ============================================================
-class OpenAIConfig:
-    """Configuración para el uso de la API de ChatGPT (OpenAI)."""
+class GeminiConfig:
+    """Configuración para la API de Gemini."""
+    def __init__(self, api_key=None):
 
-    def __init__(self):
-        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-        self.MODEL = os.getenv("CHATGPT_MODEL", "gpt-3.5-turbo")
-        self.TEMPERATURE = float(os.getenv("CHATGPT_TEMPERATURE", "0.8"))
+        # NOTA: En una aplicación real, no se debería hardcodear la API key
+        # y se debería obtener de una variable de entorno como os.environ.get("GEMINI_API_KEY")
+        self.GEMINI_API_KEY = (
+            api_key
+            or os.environ.get("GEMINI_API_KEY", "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") # Usar variable de entorno si existe
+        )
+        
+        # MODELO CORREGIDO: Usar el nombre corto y actual.
+        self.MODEL = "gemini-1.5-flash" 
+
+        self.TEMPERATURE = 0.3
 
     def resumen(self):
-        """Devuelve un resumen legible de la configuración de OpenAI."""
         return {
             "Modelo": self.MODEL,
             "Temperatura": self.TEMPERATURE,
-            "API_KEY definida": bool(self.OPENAI_API_KEY),
+            "API_KEY definida": bool(self.GEMINI_API_KEY),
         }
 
 
 # ============================================================
-# Clase: AppConfig (contenedora general)
+# Clase principal
 # ============================================================
 class AppConfig:
-    """Clase principal que agrupa todas las configuraciones del proyecto."""
-
     def __init__(self):
         self.mqtt = MQTTConfig()
-        self.openai = OpenAIConfig()
+        # Pasar explícitamente la API key si se desea inicializar desde el entorno
+        self.gemini = GeminiConfig()
 
-    def resumen(self):
-        """Muestra ambas configuraciones de manera resumida."""
-        return {
-            "MQTT": self.mqtt.resumen(),
-            "OpenAI": self.openai.resumen()
-        }
+# Si quieres usar un solo objeto de configuración global:
+app_config = AppConfig()
+
 
 
 

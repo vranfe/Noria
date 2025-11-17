@@ -7,12 +7,28 @@ import neopixel
 # ======================================================================
 #                         CONFIGURACIÓN GENERAL
 # ======================================================================
+
+# --- WiFi ---
 WIFI_SSID = "MOVISTAR_3C14"
 WIFI_PASS = "QhMHsCWs5Y5H4SPmy8Qd"
 
-OPENROUTER_API_KEY = "sk-or-..."  
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-GEMINI_MODEL = "google/gemini-2.5-flash"
+# --- Gemini API ---
+# ESTA es la única parte donde debe estar tu API key
+GEMINI_API_KEY = "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"
+
+# Endpoint base de Gemini
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+# Modelo que quieres usar
+GEMINI_MODEL = "gemini-1.5-flash"
+
+# Construcción automática del endpoint final para el ESP32
+GEMINI_ENDPOINT = (
+    f"{GEMINI_URL}/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+)
+
+print("📡 Endpoint Gemini cargado:")
+print(GEMINI_ENDPOINT)
 
 MQTT_SERVER = "broker.hivemq.com"
 MQTT_PORT = 1883
