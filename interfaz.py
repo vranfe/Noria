@@ -48,6 +48,9 @@ class InterfazNoria:
         # Debounce / últimos enviados
         self._vel_debounce_id = None
         self._vel_last_sent = None
+        self._dc_debounce_id = None
+        self._dc_last_sent = None
+
 
         # Estados
         self.estado_motor = tk.BooleanVar(value=False)   # este controla el stepper (noria)
@@ -127,7 +130,7 @@ class InterfazNoria:
             client.subscribe(TOPIC_SERVO)
             client.subscribe(TOPIC_ERROR)
             client.subscribe(TOPIC_STATUS)
-            client.subscribe(TOPIC_SENSOR)
+            client.subscribe(TOPIC_DISTANCE)
             print("📡 Suscrito a topics esenciales de la noria")
         except Exception as e:
             print("⚠️ Error suscribiendo a topics:", e)
@@ -402,21 +405,32 @@ class InterfazNoria:
         ).pack(pady=20)
 
     def _toggle_motor_dc(self):
-        """Toggle para el Motor DC: cambia apariencia y publica ON/OFF (y no modifica el contador).
+     """
+     Toggle del Motor DC.
+     Publica SOLO números porque la ESP32 espera un entero:
+       - 0 = apagado
+       - valor del slider = encendido
+     """
+     try:
+         actual = self.btn_motor_dc.cget("bg")
+         nuevo = self.COLOR_BASE_ENCENDIDO if actual == self.COLOR_BASE_APAGADO else self.COLOR_BASE_APAGADO
+         self.btn_motor_dc.config(bg=nuevo, activebackground=nuevo)
+ 
+         # Estado ON/OFF
+         encendido = (nuevo == self.COLOR_BASE_ENCENDIDO)
+ 
+         # Si está encendido -> enviar la velocidad actual del slider
+         # Si está apagado -> enviar 0
+         speed_value = int(self.dc_speed.get()) if encendido else 0
+ 
+         print(f"⚡ Toggle DC -> {'ON' if encendido else 'OFF'} (publicando {speed_value})")
+ 
+         # Publicar número simple
+         self._mqtt_publish(TOPIC_DC_SPEED, str(speed_value))
+ 
+     except Exception as e:
+         print("⚠️ Error en toggle_motor_dc:", e)
 
-        El contador de pasajeros ahora se actualiza SOLO desde el topic del sensor (TOPIC_SENSOR).
-        """
-        try:
-            actual = self.btn_motor_dc.cget("bg")
-            nuevo = self.COLOR_BASE_ENCENDIDO if actual == self.COLOR_BASE_APAGADO else self.COLOR_BASE_APAGADO
-            self.btn_motor_dc.config(bg=nuevo, activebackground=nuevo)
-
-            # Publicar estado simple ON/OFF en un topic DC (enviamos 'on' o 'off')
-            estado_on = 1 if nuevo == self.COLOR_BASE_ENCENDIDO else 0
-            payload = {"on": estado_on, "speed": int(self.dc_speed.get())}
-            self._mqtt_publish(TOPIC_DC_SPEED, payload)
-        except Exception as e:
-            print("⚠️ Error en toggle_motor_dc:", e)
 
     def _toggle_boton(self, tipo, variable_estado):
         """Maneja el clic en cualquier botón"""
@@ -559,13 +573,31 @@ class InterfazNoria:
         self._vel_debounce_id = self.root.after(200, enviar)
 
     def _dc_slider_changed(self, _):
-        # Slider del motor DC
-        val = self.dc_speed.get()
-        self.label_dc.config(text=f"DC: {val}%")
-        # Publicar rápidamente (sin debounce para simplicidad) en formato JSON
-        payload = {"on": 1 if self.btn_motor_dc.cget("bg") == self.COLOR_BASE_ENCENDIDO else 0, "speed": int(val)}
-        print(f"🎚 Usuario cambió velocidad DC -> {val}% (publicando...)")
-        self._mqtt_publish(TOPIC_DC_SPEED, payload)
+     val = self.dc_speed.get()
+     self.label_dc.config(text=f"DC: {val}%")
+ 
+     try:
+         if self._dc_debounce_id:
+             self.root.after_cancel(self._dc_debounce_id)
+     except Exception:
+         pass
+ 
+     def enviar():
+         publish_value = int(val)
+ 
+         if self._dc_last_sent == publish_value:
+             return
+ 
+         self._dc_last_sent = publish_value
+         print(f"🎚 Usuario cambió velocidad DC -> {publish_value}% (publicando...)")
+ 
+         # Aquí ya NO se pregunta si el motor está on/off
+         # Solo se publica un número simple, como ESP32 espera
+         self._mqtt_publish(TOPIC_DC_SPEED, str(publish_value))
+ 
+     self._dc_debounce_id = self.root.after(200, enviar)
+
+ 
 
     def actualizar_estado(self, topic, payload):
         try:
@@ -619,7 +651,7 @@ class InterfazNoria:
                 state = payload.strip().lower() in ("open", "abrir", "true", "1")
                 self.estado_servo.set(state)
 
-            elif TOPIC_SENSOR in topic or "sensor" in topic:
+            elif TOPIC_DISTANCE in topic or "sensor" in topic:
                 # Mostrar texto directamente en la UI
                 self.label_sensor.config(text=f"Sensor: {payload}")
 
